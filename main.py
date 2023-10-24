@@ -14,90 +14,124 @@ import plotly.express as px
 import plotly.graph_objects as go
 from st_aggrid import AgGrid , JsCode
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode , AgGridTheme
+import datetime
+from  grid_option import get_grid_options , get_name_model
+
+a = "avc".split("/")
+print(a)
 
 st.set_page_config(layout="wide")
 
+st.title('Seguimiento del Valor en Riesgo (VaR) en Economías Emergentes de América Latina')
+st.subheader('This is a subheader with a divider')
 
-df = pd.DataFrame({"Desk_Book_Asset": [ "Fixed Income", "Fixed Income/bonos gubernamentales" , "Fixed Income/bonos corporativos de alto rendimiento"  ], 
-                    "V_s_90": [1, 2, 3], "V_s_95": [3, 4, 5], "V_s_99": [4, 5, 6],"V_h_90": [9, 9, 9], "V_h_95": [10, 10, 10], "V_h_99": [11, 11, 11]})
 
-grid_options = {
-  "rowSelection": "single",
-  "columnDefs": [
+
+if "tipo_formato_tabla" not in st.session_state:
+    st.session_state.tipo_formato_tabla = "%"
+
+if "df_portafolios_origen" not in st.session_state:
+
+    df = pd.read_csv("portafolios.csv")
+    st.session_state.df_portafolios_origen = df
+
+if "df_portafolios" not in st.session_state:
+
+    st.session_state.df_portafolios = st.session_state.df_portafolios_origen.copy() 
+
+
+
+def actualizar_df_portafolio():
+
+    monto_inversion = st.session_state.monto_inversion 
+    df = st.session_state.df_portafolios_origen.copy()
+
+    excluir_columnas = ['Activo', 'cod_portfolio', 'name_portfolio']
+
+    # Valor específico por el que multiplicar las columnas
+    
+    # Realizar la multiplicación excluyendo las columnas especificadas
+    columnas_a_multiplicar = [col for col in df.columns if col not in excluir_columnas]
+
+    df[columnas_a_multiplicar] = df[columnas_a_multiplicar] * monto_inversion
+
+
+
+    if  st.session_state.formato_presentacion  == 'Porcentaje (%)':
+        st.session_state.tipo_formato_tabla = "%"
+        st.session_state.df_portafolios = st.session_state.df_portafolios_origen.copy()
+    else:        
+        st.session_state.tipo_formato_tabla = "S/."
+        st.session_state.df_portafolios = df.copy()
+
+
+#st.write(st.session_state.tipo_formato_tabla)
+
+
+
+
+with st.form("my_form"):
+
+    col1_fp, col2_fp, col3_fp = st.columns(3)
+
+    with col1_fp:
+        formato_press = st.radio(
+            "Formato de presentación",
+            ["Porcentaje (%)", "Inversión (S/.)"], 
+            
+        
+            horizontal=True, key="formato_presentacion"
+        )
+    
+        if formato_press == 'Porcentaje (%)':
+            st.session_state.form_disabled = True
+            
+        else:
+            st.session_state.form_disabled = False
+     
+            
+
+    with col2_fp:
+
+        number = st.number_input('Monto de Inversión (S/.)' ,key="monto_inversion")
+        
+        # Every form must have a submit button.
+        
+    with col3_fp:
+        submitted = st.form_submit_button("Aplicar",on_click=actualizar_df_portafolio)
+
     
 
-    {
-      "headerName": "VaR Estresado Histórico" ,
-      "children": [
-        {
-          "field": "V_s_90" ,"headerName": "90%" , 
-        },
-        {
-          "field": "V_s_95" ,"headerName": "95%" , 
-        },
-        {
-          "field": "V_s_99" ,"headerName": "99%" , 
-        }
-      ]
-    },
+#    vc: Variance-covariance VaR
+#    es: Expected Shortfall
+#    hs: Historical Simulation VaR
+#    mc: Monte Carlo VaR    
+    
 
-    {
-      "headerName": "VaR Histórico",
-      "children": [
-        {
-          "field": "V_h_90", "headerName": "90%" ,
-        },
-        {
-          "field": "V_h_95","headerName": "95%" , 
-        },
-        {
-          "field": "V_h_99" ,"headerName": "99%" , 
-        }
-      ]
-    }
 
-  ],
 
-  "defaultColDef" : {
-      "flex": 1,
-  },
-  
-  "autoGroupColumnDef" : {
-    "field": "Desk_Book_Asset",  
-    "headerName": 'Desk / Book / Asset',
-    "minWidth": 400,
-    "cellRendererParams": {
-      "suppressCount": False,
-    },
-  },
-  "treeData" :True, 
-  "animateRows" :True, 
-  "groupDefaultExpanded" :-1, 
 
-  "getDataPath": JsCode(""" function(data){
-      return data.Desk_Book_Asset.split("/");
-    }""").js_code
-
-}
 
 custom_css = {
    ".ag-theme-alpine .ag-row-odd": {"background": "rgba(243, 247, 249, 0.3) !important","border": "1px solid #eee !important"},
     }
 
 
-grid_return = AgGrid(df, gridOptions=grid_options, 
+
+grid_return = AgGrid(st.session_state.df_portafolios, gridOptions=get_grid_options(st.session_state.tipo_formato_tabla), 
                      allow_unsafe_jscode=True,   
                      enable_enterprise_modules=True, 
                      filter=True,
+                     fit_columns_on_grid_load=False,
                      custom_css=custom_css,
                      theme=AgGridTheme.ALPINE,   
                      update_mode=GridUpdateMode.SELECTION_CHANGED, 
                      tree_data=True)
 
 selected = grid_return["selected_rows"] 
-st.write(selected)
+selected_df = pd.DataFrame(selected).apply(pd.to_numeric, errors='coerce')
+#st.write(selected)
 
-# Mostrar la tabla en Streamlit
 
 
 class GoogleDriveService:
@@ -139,66 +173,99 @@ def getFileListFromGDrive():
 
 
 with st.sidebar:
+    
+
+    
+
     with st.echo():
         st.write("This code will be printed to the sidebar.")
 
-tab1, tab2, tab3 = st.tabs(["Cat", "Dog", "Owl"])
+    today = datetime.datetime.now()
+    next_year = today.year + 1
+    jan_1 = datetime.date(next_year, 1, 1)
+    dec_31 = datetime.date(next_year, 12, 31)
 
-with tab1:
-   st.header("A cat")
-   ''' 
-   df_data = getFileListFromGDrive()
-
-   grid_response = AgGrid(
-        df_data, 
-        height=500, 
-        width='100%',        
-
-   )
-   '''
-
-
-with tab2:
-   st.header("A dog")
-   st.image("https://static.streamlit.io/examples/dog.jpg", width=200)
+    d = st.date_input(
+        "Select your vacation for next year",
+        (jan_1, datetime.date(next_year, 1, 7)),
+        jan_1,
+        dec_31,
+        format="MM.DD.YYYY",
+    )
+  
 
 
-with tab3:
-   st.header("An owl")
-   st.image("https://static.streamlit.io/examples/owl.jpg", width=200)
 
 
 
 col1, col2 = st.columns(2)
 
 with col1:
-   st.header("A cat")
 
-   np.random.seed(42)
-   data = np.random.normal(0, 10000, 1000)  # Generar 1000 valores con media 0 y desviación estándar 10000
+  tipo_var = st.radio("Tipo de modelo de riesgo", ["VC", "ES", "HS","MC"],horizontal=True)
+  nombre_tipo_var = get_name_model(tipo_var)
 
-   percentil_deseado = 1  # Cambia este valor al percentil que necesitas
-   valor_percentil = np.percentile(data, percentil_deseado)
+  if not selected_df.empty :
+      #st.write(selected[0]["Activo"])
+      if "cod_portfolio" in selected[0]:
+        cod_portfolio = selected[0]["cod_portfolio"]
+        name_portfolio = selected[0]["name_portfolio"]
+        activo = selected[0]["Activo"]
 
-   print("valor_percentil : ",valor_percentil)
-   print("min : ",np.min(data))
+        tipo_var_lower = tipo_var.lower()
 
-   # Crear un histograma con Plotly
-   fig = px.histogram(data, nbins=20, title="Histograma de Valores", labels={"count": "Frecuencia", "value": "Valor (k)"})
+        nivel_95 = selected[0][f"{tipo_var_lower}_95"]
+        nivel_99 = selected[0][f"{tipo_var_lower}_99"]
 
-   # Cambiar etiquetas en el eje x para indicar miles (posfijo "k")
-   fig.update_xaxes(tickvals=[-50000, -40000, -30000, -20000, -10000, 0, 10000, 20000, 30000, 40000, 50000],
-                    ticktext=["-50k", "-40k", "-30k", "-20k", "-10k", "0", "10k", "20k", "30k", "40k", "50k"])
-   
-   fig.add_vrect(x0=np.min(data), x1=valor_percentil, 
-              annotation_text="decline", annotation_position="top left",
-              fillcolor="red", opacity=0.25, line_width=0)
+        activo_parts = activo.split("/")
+        if len(activo_parts)>1:
+            activo_name = activo_parts[1] +"/"+ activo_parts[2]
+        else:
+            activo_name = activo_parts[0]
+
+        returns = pd.read_csv(f"returns_{cod_portfolio}.csv")
+        data = returns[activo_name]
 
 
-   st.plotly_chart(fig, theme="streamlit", use_container_width=True)
+        nombre_portafolio = ""
+        nombre_activo = ""
+        # Crear un histograma con Plotly
+        fig = px.histogram(data, nbins=50, title=f" {activo}  - {nombre_tipo_var}", text_auto=True,  
+                          labels={"count": "Frecuencia", "value": "Valor (k)"})
+        
+
+        fig.add_vrect(x0=nivel_99, x1=nivel_95, 
+            annotation_text=f"95% : {nivel_95:.4f} ", annotation_position="top right",
+            fillcolor="red", opacity=0.1, line_width=1,annotation_textangle = 90, annotation_font=dict(size=16, color="black"))
+
+        fig.add_vrect(x0=np.min(data), x1=nivel_99, 
+                    annotation_text=f"99% : {nivel_99:.4f} ", annotation_position="top right",
+                    fillcolor="red", opacity=0.3, line_width=1,annotation_textangle = 90, annotation_font=dict(size=16, color="black"))
+
+
+
+
+        fig.update_layout(
+            xaxis_title_text = f'P&L (S/.)', 
+            yaxis_title_text = 'Frecuencia'
+            )
+
+        fig.update_layout(showlegend=False)
+
+
+
+
+        st.plotly_chart(fig, theme="streamlit", use_container_width=True)
 
 with col2:
-    st.header("A dog")
+    
+    checks = st.columns(3)
+    with checks[0]:
+        st.checkbox('95%')
+    with checks[1]:
+        st.checkbox('97.5%')
+    with checks[2]:
+        st.checkbox('99%')
 
 
     # Datos de ejemplo
@@ -225,6 +292,7 @@ with col2:
 
     # Mostrar gráfico
     st.plotly_chart(fig, theme="streamlit", use_container_width=True)
+    #streamlit run main.py
 
 
 
