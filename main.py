@@ -12,18 +12,16 @@ from io import StringIO
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
-from st_aggrid import AgGrid , JsCode
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode , AgGridTheme
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode , AgGridTheme , ColumnsAutoSizeMode
 import datetime
 from  grid_option import get_grid_options , get_name_model
 
-a = "avc".split("/")
-print(a)
+
 
 st.set_page_config(layout="wide")
 
-st.title('Seguimiento del Valor en Riesgo (VaR) en Economías Emergentes de América Latina')
-st.subheader('This is a subheader with a divider')
+st.title('Monitoreo del VaR en Economías Emergentes de América Latina')
+st.subheader('Riesgo por países')
 
 
 
@@ -54,7 +52,7 @@ def actualizar_df_portafolio():
     columnas_a_multiplicar = [col for col in df.columns if col not in excluir_columnas]
 
     df[columnas_a_multiplicar] = df[columnas_a_multiplicar] * monto_inversion
-
+    df[columnas_a_multiplicar] = df[columnas_a_multiplicar].round(2)
 
 
     if  st.session_state.formato_presentacion  == 'Porcentaje (%)':
@@ -98,7 +96,9 @@ with st.form("my_form"):
         # Every form must have a submit button.
         
     with col3_fp:
-        submitted = st.form_submit_button("Aplicar",on_click=actualizar_df_portafolio)
+        st.write('')
+        st.write('')
+        submitted = st.form_submit_button("Actualizar",on_click=actualizar_df_portafolio, type="primary")
 
     
 
@@ -122,10 +122,11 @@ grid_return = AgGrid(st.session_state.df_portafolios, gridOptions=get_grid_optio
                      allow_unsafe_jscode=True,   
                      enable_enterprise_modules=True, 
                      filter=True,
-                     fit_columns_on_grid_load=False,
+                     #fit_columns_on_grid_load=True,
                      custom_css=custom_css,
                      theme=AgGridTheme.ALPINE,   
                      update_mode=GridUpdateMode.SELECTION_CHANGED, 
+                     columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
                      tree_data=True)
 
 selected = grid_return["selected_rows"] 
@@ -177,16 +178,13 @@ with st.sidebar:
 
     
 
-    with st.echo():
-        st.write("This code will be printed to the sidebar.")
-
     today = datetime.datetime.now()
     next_year = today.year + 1
     jan_1 = datetime.date(next_year, 1, 1)
     dec_31 = datetime.date(next_year, 12, 31)
 
     d = st.date_input(
-        "Select your vacation for next year",
+        "Rango de fechas",
         (jan_1, datetime.date(next_year, 1, 7)),
         jan_1,
         dec_31,
@@ -196,26 +194,12 @@ with st.sidebar:
 
 
 
-
-
-col1, col2 = st.columns(2)
-
-with col1:
-
-  tipo_var = st.radio("Tipo de modelo de riesgo", ["VC", "ES", "HS","MC"],horizontal=True)
-  nombre_tipo_var = get_name_model(tipo_var)
-
-  if not selected_df.empty :
-      #st.write(selected[0]["Activo"])
-      if "cod_portfolio" in selected[0]:
+if not selected_df.empty :
+    #st.write(selected[0]["Activo"])
+    if "cod_portfolio" in selected[0]:
         cod_portfolio = selected[0]["cod_portfolio"]
         name_portfolio = selected[0]["name_portfolio"]
         activo = selected[0]["Activo"]
-
-        tipo_var_lower = tipo_var.lower()
-
-        nivel_95 = selected[0][f"{tipo_var_lower}_95"]
-        nivel_99 = selected[0][f"{tipo_var_lower}_99"]
 
         activo_parts = activo.split("/")
         if len(activo_parts)>1:
@@ -223,76 +207,158 @@ with col1:
         else:
             activo_name = activo_parts[0]
 
-        returns = pd.read_csv(f"returns_{cod_portfolio}.csv")
-        data = returns[activo_name]
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            st.subheader('Distribución')
+
+            tipo_var = st.radio("Tipo de modelo de riesgo", ["VC", "ES", "HS","MC"],horizontal=True)
+            nombre_tipo_var = get_name_model(tipo_var)
+
+            tipo_var_lower = tipo_var.lower()
+
+            nivel_95 = selected[0][f"{tipo_var_lower}_95"]
+            nivel_99 = selected[0][f"{tipo_var_lower}_99"]
 
 
-        nombre_portafolio = ""
-        nombre_activo = ""
-        # Crear un histograma con Plotly
-        fig = px.histogram(data, nbins=50, title=f" {activo}  - {nombre_tipo_var}", text_auto=True,  
-                          labels={"count": "Frecuencia", "value": "Valor (k)"})
+
+            returns = pd.read_csv(f"returns_{cod_portfolio}.csv")
+            
+
+            
+            if  st.session_state.formato_presentacion  == 'Porcentaje (%)':
+              
+                data = returns[activo_name]     
+
+                annotation_text_95 = f"95% : {nivel_95:.2%}"
+                annotation_text_99 = f"99% : {nivel_99:.2%}"
+
+            else:        
         
+                data = returns[activo_name]*st.session_state.monto_inversion 
+                #nivel_95 = nivel_95*st.session_state.monto_inversion 
+                #nivel_99 = nivel_99*st.session_state.monto_inversion 
 
-        fig.add_vrect(x0=nivel_99, x1=nivel_95, 
-            annotation_text=f"95% : {nivel_95:.4f} ", annotation_position="top right",
-            fillcolor="red", opacity=0.1, line_width=1,annotation_textangle = 90, annotation_font=dict(size=16, color="black"))
-
-        fig.add_vrect(x0=np.min(data), x1=nivel_99, 
-                    annotation_text=f"99% : {nivel_99:.4f} ", annotation_position="top right",
-                    fillcolor="red", opacity=0.3, line_width=1,annotation_textangle = 90, annotation_font=dict(size=16, color="black"))
+                annotation_text_95 = f"95% : {nivel_95:.2f}"
+                annotation_text_99 = f"99% : {nivel_99:.2f}"
 
 
+            nombre_portafolio = ""
+            nombre_activo = ""
+            # Crear un histograma con Plotly
+            fig = px.histogram(data, nbins=50, title=f" {activo}  - {nombre_tipo_var}", text_auto=True,  
+                            labels={"count": "Frecuencia", "value": "Valor (k)"})
+            
+
+            fig.add_vrect(x0=nivel_99, x1=nivel_95, 
+                annotation_text=annotation_text_95, annotation_position="top right",
+                fillcolor="red", opacity=0.1, line_width=1,annotation_textangle = 90, annotation_font=dict(size=16, color="black"))
+
+            fig.add_vrect(x0=np.min(data), x1=nivel_99, 
+                        annotation_text=annotation_text_99, annotation_position="top right",
+                        fillcolor="red", opacity=0.3, line_width=1,annotation_textangle = 90, annotation_font=dict(size=16, color="black"))
 
 
-        fig.update_layout(
-            xaxis_title_text = f'P&L (S/.)', 
-            yaxis_title_text = 'Frecuencia'
+            tipo_formato_tabla = st.session_state.tipo_formato_tabla
+
+            fig.update_layout(
+                xaxis_title_text = f'P&L ({tipo_formato_tabla})', 
+                yaxis_title_text = 'Frecuencia'
+                )
+
+            fig.update_layout(showlegend=False)
+
+
+
+
+            st.plotly_chart(fig, theme="streamlit", use_container_width=True)
+
+        with col2:
+
+            st.subheader('Backtesting')
+            
+            checks = st.columns(3)
+            with checks[0]:
+                st.write("Nivel de Significancia: ")
+            with checks[1]:
+                z95 = st.checkbox('95%', value=True)
+            with checks[2]:
+                z99 =st.checkbox('99%', value=False)
+
+            df_backtesting = pd.read_csv(f"backtesting_{cod_portfolio}.csv")
+            df_backtesting.datetime = pd.to_datetime(df_backtesting.datetime)
+            
+
+            df_backtesting_sel = df_backtesting[df_backtesting["Activo"]==activo].copy()
+            df_backtesting_sel.set_index('datetime', inplace=True)
+
+            config_bacttest =[
+
+            {"name":'PnL',     "color":'#229954', "values": df_backtesting_sel["PnL"] },
+            {"name":'VC 95%',  "color":'#EC7063', "values": df_backtesting_sel["vc_95"] },
+            {"name":'HS 95%',  "color":'#9B59B6', "values": df_backtesting_sel["hs_95"] },
+            {"name":'MC 95%',  "color":'#2980B9', "values": df_backtesting_sel["mc_95"] },
+            {"name":'ES 95%',  "color":'#D4AC0D', "values": df_backtesting_sel["es_95"] },
+            {"name":'VC 99%',  "color":'#7B241C', "values": df_backtesting_sel["vc_99"] },
+            {"name":'HS 99%',  "color":'#76448A', "values": df_backtesting_sel["hs_99"] },
+            {"name":'MC 99%',  "color":'#4A235A ', "values": df_backtesting_sel["mc_99"] },
+            {"name":'ES 99%',  "color":'#784212 ', "values": df_backtesting_sel["es_99"] },
+
+
+            ]
+
+
+            config_bacttest = [item for item in config_bacttest if
+                  item['name'] == 'PnL' or ((z95 and '95%' in item['name']) or (z99 and '99%' in item['name']))]
+
+
+            ######## generando data de bacttesting ####################
+
+            fig = go.Figure()
+            fechas_df_backtesting_sel = df_backtesting_sel.index
+
+            fechas_formateadas = fechas_df_backtesting_sel.strftime('%d/%m/%y')
+
+            tipo_formato_tabla = st.session_state.tipo_formato_tabla
+
+            
+            
+            
+            for item in config_bacttest:
+
+                if  tipo_formato_tabla=="S/.":
+                    values_bt = item["values"]*st.session_state.monto_inversion      
+                else:
+                    values_bt = item["values"]      
+
+
+                # Agregar curvas al gráfico
+                fig.add_trace(go.Scatter(x=fechas_formateadas, y=values_bt, mode='lines+markers', name=item["name"], line=dict(color=item["color"]), marker=dict(size=5, color='black', line=dict(width=2))   ))
+
+            # Personalización de ejes y diseño
+            fig.update_layout(
+            
+                yaxis=dict(title=f"{tipo_formato_tabla}"),
+                legend=dict(yanchor="top", y=1.02, xanchor="right", x=1.1),
+                margin=dict(l=1, r=1, t=1, b=1)  
+
             )
 
-        fig.update_layout(showlegend=False)
 
+            fig.update_xaxes(
+                title_text='Fechas',
+                tickangle=-45,  # Ángulo de inclinación de las fechas
+                showline=True,
+                showgrid=False,
+                range=[fechas_formateadas[0], fechas_formateadas[-1]],  # Ajusta el rango de fechas
+                zeroline=False,
+            
+            )
 
-
-
-        st.plotly_chart(fig, theme="streamlit", use_container_width=True)
-
-with col2:
-    
-    checks = st.columns(3)
-    with checks[0]:
-        st.checkbox('95%')
-    with checks[1]:
-        st.checkbox('97.5%')
-    with checks[2]:
-        st.checkbox('99%')
-
-
-    # Datos de ejemplo
-    fechas = ['Oct 2019', 'Nov 2019', 'Dic 2019', 'Ene 2020', 'Feb 2020', 'Mar 2020', 'Abr 2020', 'May 2020']
-    valores_95 = [100, 150, 120, 200, 180, 220, 250, 240]
-    valores_97_5 = [110, 160, 130, 210, 190, 230, 260, 250]
-    valores_99 = [120, 170, 140, 220, 200, 240, 270, 260]
-
-    # Crear figura
-    fig = go.Figure()
-
-    # Agregar curvas al gráfico
-    fig.add_trace(go.Scatter(x=fechas, y=valores_95, mode='lines', name='95%', line=dict(color='black')))
-    fig.add_trace(go.Scatter(x=fechas, y=valores_97_5, mode='lines', name='97.5%', line=dict(color='yellow')))
-    fig.add_trace(go.Scatter(x=fechas, y=valores_99, mode='lines', name='99%', line=dict(color='blue')))
-
-    # Personalización de ejes y diseño
-    fig.update_layout(
-        title='Curvas de Valor',
-        xaxis=dict(tickvals=list(range(0, len(fechas), len(fechas)//8)), ticktext=fechas[::len(fechas)//8]),
-        yaxis=dict(title='value (USD)'),
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-    )
-
-    # Mostrar gráfico
-    st.plotly_chart(fig, theme="streamlit", use_container_width=True)
-    #streamlit run main.py
+            # Mostrar gráfico
+            st.plotly_chart(fig, theme="streamlit", use_container_width=True)
+            #streamlit run main.py
 
 
 

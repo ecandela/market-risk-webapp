@@ -136,7 +136,8 @@ def get_grid_options(tipo_valueFormatter):
     "autoGroupColumnDef" : {
         "field": "Activo",  
         "headerName": 'País / Sector / Asset',
-        "minWidth": 400,
+        "minWidth": 500,
+        "pinned":"left",
         "cellRendererParams": {
         "suppressCount": False,
         },
