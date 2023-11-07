@@ -15,7 +15,22 @@ import plotly.graph_objects as go
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode , AgGridTheme , ColumnsAutoSizeMode
 import datetime
 from  grid_option import get_grid_options , get_name_model
+from sqlalchemy import create_engine, inspect
+import io
 
+# buffer to use for excel writer
+buffer = io.BytesIO()
+
+
+
+def get_data_from_table(table="",engine=None, index_col=None,parse_dates=None):
+    engine = engine
+    query = f"SELECT * FROM {table} "
+    df = pd.read_sql_query(query, engine,index_col=index_col,parse_dates=parse_dates)
+
+    # Cierra la conexión a la base de datos
+    engine.dispose()
+    return df
 
 
 st.set_page_config(layout="wide")
@@ -23,15 +38,48 @@ st.set_page_config(layout="wide")
 st.title('Monitoreo del VaR en Economías Emergentes de América Latina')
 st.subheader('Riesgo por países')
 
+if "engine" not in st.session_state:
+    engine_str = st.secrets["engine"]
+    engine = create_engine(engine_str)
 
+    df = get_data_from_table(table="portafolios",engine=engine)
+    st.session_state.df_portafolios_origen = df
+
+    cod_portfolio_list = ["arg","bra","chl","col","mex","pe"]
+
+    list_rt = []
+    list_bt = []
+
+    for cod_portfolio in cod_portfolio_list:
+
+        returns_name = f"returns_{cod_portfolio}"
+        returns = get_data_from_table(table=returns_name,engine=engine)
+        returns["cod_portfolio"]=cod_portfolio
+
+        backtesting_name = f"backtesting_{cod_portfolio}"
+        df_backtesting = get_data_from_table(table=backtesting_name,engine=engine)
+        df_backtesting["cod_portfolio"]=cod_portfolio
+
+        list_rt.append(returns)
+        list_bt.append(df_backtesting)
+    
+
+    st.session_state.returns = pd.concat(list_rt)
+    st.session_state.df_backtesting = pd.concat(list_bt)
+
+
+   
+
+if "engine" not in st.session_state:
+
+    engine = create_engine('postgresql://fl0user:MLYK9dmVOB4T@ep-super-field-51954597.us-east-2.aws.neon.fl0.io/dw-market-risk')
+    st.session_state.engine = engine
 
 if "tipo_formato_tabla" not in st.session_state:
     st.session_state.tipo_formato_tabla = "%"
 
-if "df_portafolios_origen" not in st.session_state:
 
-    df = pd.read_csv("portafolios.csv")
-    st.session_state.df_portafolios_origen = df
+    
 
 if "df_portafolios" not in st.session_state:
 
@@ -68,37 +116,43 @@ def actualizar_df_portafolio():
 
 
 
-with st.form("my_form"):
+#with st.form("my_form"):
 
-    col1_fp, col2_fp, col3_fp = st.columns(3)
+if "formato_presentacion" not in st.session_state:
+    st.session_state.visibility = "visible"
+    st.session_state.disabled = False
+    st.session_state.horizontal = False
 
-    with col1_fp:
-        formato_press = st.radio(
-            "Formato de presentación",
-            ["Porcentaje (%)", "Inversión (S/.)"], 
-            
+col1_fp, col2_fp, col3_fp, col4_fp = st.columns(4)
+
+with col1_fp:
+    formato_press = st.radio(
+        "Formato de presentación",
+        ["Porcentaje (%)", "Inversión (S/.)"], 
         
-            horizontal=True, key="formato_presentacion"
-        )
     
-        if formato_press == 'Porcentaje (%)':
-            st.session_state.form_disabled = True
-            
-        else:
-            st.session_state.form_disabled = False
-     
-            
+        horizontal=True, key="formato_presentacion"
+    )
 
-    with col2_fp:
+    if formato_press == 'Porcentaje (%)':
+        formato_percen = True 
+        
+    else:
+        formato_percen = False
 
-        number = st.number_input('Monto de Inversión (S/.)' ,key="monto_inversion")
+        
+
+with col2_fp:
+
+
+    number = st.number_input('Monto de Inversión (S/.)' ,key="monto_inversion", disabled=formato_percen , value=100)
         
         # Every form must have a submit button.
         
-    with col3_fp:
-        st.write('')
-        st.write('')
-        submitted = st.form_submit_button("Actualizar",on_click=actualizar_df_portafolio, type="primary")
+    #with col3_fp:
+    #    st.write('')
+    #    st.write('')
+    #    submitted = st.form_submit_button("Actualizar",on_click=actualizar_df_portafolio, type="primary")
 
     
 
@@ -108,7 +162,30 @@ with st.form("my_form"):
 #    mc: Monte Carlo VaR    
     
 
+if 'clicked' not in st.session_state:
+    st.session_state.clicked = False
 
+def click_button():
+    st.session_state.clicked = True
+
+with col3_fp:
+    st.write('')
+    st.write('')
+    st.button('Actualizar', on_click=click_button)
+
+    if st.session_state.clicked:
+        
+        
+        # The message and nested widget will remain on the page
+        actualizar_df_portafolio()
+
+
+with col4_fp:
+    st.write('')
+    st.write('')
+    # download button 2 to download dataframe as xlsx
+
+        
 
 
 
@@ -173,28 +250,26 @@ def getFileListFromGDrive():
     return df
 
 
-with st.sidebar:
+#with st.sidebar:
     
+#    today = datetime.datetime.now()
+#    next_year = today.year + 1
+#    jan_1 = datetime.date(next_year, 1, 1)
+#    dec_31 = datetime.date(next_year, 12, 31)
 
-    
-
-    today = datetime.datetime.now()
-    next_year = today.year + 1
-    jan_1 = datetime.date(next_year, 1, 1)
-    dec_31 = datetime.date(next_year, 12, 31)
-
-    d = st.date_input(
-        "Rango de fechas",
-        (jan_1, datetime.date(next_year, 1, 7)),
-        jan_1,
-        dec_31,
-        format="MM.DD.YYYY",
-    )
+#    d = st.date_input(
+#        "Rango de fechas",
+#        (jan_1, datetime.date(next_year, 1, 7)),
+#        jan_1,
+#        dec_31,
+#        format="MM.DD.YYYY",
+#    )
   
 
 
 
 if not selected_df.empty :
+    st.session_state.clicked = False
     #st.write(selected[0]["Activo"])
     if "cod_portfolio" in selected[0]:
         cod_portfolio = selected[0]["cod_portfolio"]
@@ -223,10 +298,15 @@ if not selected_df.empty :
 
 
 
-            returns = pd.read_csv(f"returns_{cod_portfolio}.csv")
-            
+            #returns = pd.read_csv(f"returns_{cod_portfolio}.csv")
+            #returns_name = f"returns_{cod_portfolio}"
+            #returns = get_data_from_table(table=returns_name)
 
-            
+            returns = st.session_state.returns.copy()
+            returns = returns[returns["cod_portfolio"]==cod_portfolio].copy() 
+            returns.drop('cod_portfolio', axis=1, inplace=True)
+
+   
             if  st.session_state.formato_presentacion  == 'Porcentaje (%)':
               
                 data = returns[activo_name]     
@@ -286,7 +366,16 @@ if not selected_df.empty :
             with checks[2]:
                 z99 =st.checkbox('99%', value=False)
 
-            df_backtesting = pd.read_csv(f"backtesting_{cod_portfolio}.csv")
+            #df_backtesting = pd.read_csv(f"backtesting_{cod_portfolio}.csv")
+
+            #backtesting_name = f"backtesting_{cod_portfolio}"
+            #df_backtesting = get_data_from_table(table=backtesting_name)
+            #st.session_state.df_backtesting = pd.concat(list_bt)
+            
+            df_backtesting = st.session_state.df_backtesting.copy()
+            df_backtesting = df_backtesting[df_backtesting["cod_portfolio"]==cod_portfolio].copy() 
+            df_backtesting.drop('cod_portfolio', axis=1, inplace=True)
+
             df_backtesting.datetime = pd.to_datetime(df_backtesting.datetime)
             
 
@@ -351,7 +440,7 @@ if not selected_df.empty :
                 tickangle=-45,  # Ángulo de inclinación de las fechas
                 showline=True,
                 showgrid=False,
-                range=[fechas_formateadas[0], fechas_formateadas[-1]],  # Ajusta el rango de fechas
+                #range=[fechas_formateadas[0], fechas_formateadas[-1]],  # Ajusta el rango de fechas
                 zeroline=False,
             
             )
